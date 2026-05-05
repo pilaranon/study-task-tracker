@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Study Planner / Task Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="container">
+
+        <header class="main-header">
+            <div>
+                <h1>Study Planner / Task Tracker</h1>
+                <p>Organize tasks by due date, priority, and completion status.</p>
+            </div>
+
+            <div class="user-menu">
+                <button id="userIconBtn" class="user-icon-btn">
+                    <span>👤</span>
+                </button>
+
+                <div id="userDropdown" class="user-dropdown hidden">
+                    <p class="user-name">
+                        Logged in as:<br>
+                        <strong>{{ username }}</strong>
+                    </p>
+
+                    <a href="/logout" class="logout-link">Logout</a>
+                </div>
+            </div>
+        </header>
+
+        <section class="card">
+            <h2>Add New Task</h2>
+
+            <form id="taskForm">
+                <input type="text" id="title" placeholder="Task title" required>
+
+                <textarea id="description" placeholder="Task description"></textarea>
+
+                <label for="dueDate">Due Date</label>
+                <input type="date" id="dueDate">
+
+                <label for="priority">Priority</label>
+                <select id="priority">
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                </select>
+
+                <button type="submit">Add Task</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <div class="task-header">
+                <h2>Task List</h2>
+
+                <div class="controls">
+                    <button id="taskViewBtn" class="view-btn active-view">Task View</button>
+                    <button id="completedViewBtn" class="view-btn">Completed Tasks</button>
+                    <button id="calendarViewBtn" class="view-btn">Calendar View</button>
+
+                    <select id="sortSelect">
+                        <option value="">Sort By</option>
+                        <option value="due_date">Due Date</option>
+                        <option value="priority">Priority</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="taskView">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Task</th>
+                            <th>Description</th>
+                            <th>Date Made</th>
+                            <th>Due Date</th>
+                            <th>Priority</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="taskTableBody">
+                        <!-- Tasks load here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="calendarView" class="hidden">
+                <h3>Calendar View</h3>
+                <div id="calendarContainer" class="calendar-container">
+                    <!-- Calendar tasks load here -->
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div id="taskTooltip" class="task-tooltip hidden"></div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

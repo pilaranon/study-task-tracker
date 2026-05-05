@@ -14,7 +14,7 @@ const taskTooltip = document.getElementById("taskTooltip");
 const userIconBtn = document.getElementById("userIconBtn");
 const userDropdown = document.getElementById("userDropdown");
 
-let currentStatusFilter = "";
+let currentStatusFilter = "active";
 let editingTaskId = null;
 let allTasks = [];
 
@@ -266,7 +266,7 @@ async function incompleteTask(id) {
 sortSelect.addEventListener("change", loadTasks);
 
 taskViewBtn.addEventListener("click", function () {
-    currentStatusFilter = "";
+    currentStatusFilter = "active";
 
     taskView.classList.remove("hidden");
     calendarView.classList.add("hidden");
@@ -292,7 +292,7 @@ completedViewBtn.addEventListener("click", function () {
 });
 
 calendarViewBtn.addEventListener("click", function () {
-    currentStatusFilter = "";
+    currentStatusFilter = "active";
 
     taskView.classList.add("hidden");
     calendarView.classList.remove("hidden");

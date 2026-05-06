@@ -6,11 +6,17 @@ from flask_limiter.util import get_remote_address
 from sqlalchemy import case
 from datetime import datetime
 from functools import wraps
+import os
 
 app = Flask(__name__)
 
-app.config["SECRET_KEY"] = "dev-secret-key"
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///tasks.db"
+database_url = os.getenv("DATABASE_URL", "sqlite:///tasks.db")
+
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
@@ -21,7 +27,6 @@ limiter = Limiter(
     app=app,
     default_limits=["100 per hour"]
 )
-
 
 # -------------------------
 # Database Models

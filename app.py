@@ -3,8 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from sqlalchemy import case
-from datetime import datetime
+from sqlalchemy import case, text
+from datetime import date, datetime
 from functools import wraps
 import os
 
@@ -49,7 +49,7 @@ class Task(db.Model):
     title = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)
     date_created = db.Column(db.DateTime, default=datetime.utcnow)
-    due_date = db.Column(db.String(20))
+    due_date = db.Column(db.Date)
     priority = db.Column(db.String(20), default="low")
     completed = db.Column(db.Boolean, default=False)
 
@@ -71,6 +71,138 @@ def login_required(route_function):
 
 def current_user_id():
     return session.get("user_id")
+
+
+def parse_due_date(value):
+    if value in (None, ""):
+        return None
+
+    if isinstance(value, datetime):
+        return value.date()
+
+    if isinstance(value, date):
+        return value
+
+    if not isinstance(value, str):
+        raise ValueError("Due date must use YYYY-MM-DD format.")
+
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as error:
+        raise ValueError("Due date must use YYYY-MM-DD format.") from error
+
+
+def format_due_date(value):
+    if not value:
+        return ""
+
+    if isinstance(value, str):
+        return value
+
+    return value.isoformat()
+
+
+def format_existing_due_date(value):
+    try:
+        parsed_date = parse_due_date(value)
+    except ValueError:
+        return None
+
+    return parsed_date.isoformat() if parsed_date else None
+
+
+def migrate_due_date_column():
+    if db.engine.dialect.name == "sqlite":
+        migrate_sqlite_due_date_column()
+    elif db.engine.dialect.name == "postgresql":
+        migrate_postgres_due_date_column()
+
+
+def migrate_sqlite_due_date_column():
+    with db.engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(task)")).mappings().all()
+
+        if not columns:
+            return
+
+        due_date_column = next(
+            (column for column in columns if column["name"] == "due_date"),
+            None
+        )
+
+        if not due_date_column or due_date_column["type"].upper() == "DATE":
+            return
+
+        tasks = connection.execute(text("""
+            SELECT id, user_id, title, description, date_created, due_date, priority, completed
+            FROM task
+        """)).mappings().all()
+
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("ALTER TABLE task RENAME TO task_old"))
+        connection.execute(text("""
+            CREATE TABLE task (
+                id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                title VARCHAR(120) NOT NULL,
+                description TEXT,
+                date_created DATETIME,
+                due_date DATE,
+                priority VARCHAR(20),
+                completed BOOLEAN,
+                PRIMARY KEY (id),
+                FOREIGN KEY(user_id) REFERENCES user (id)
+            )
+        """))
+
+        for task in tasks:
+            connection.execute(
+                text("""
+                    INSERT INTO task (
+                        id, user_id, title, description, date_created, due_date, priority, completed
+                    )
+                    VALUES (
+                        :id, :user_id, :title, :description, :date_created, :due_date, :priority, :completed
+                    )
+                """),
+                {
+                    "id": task["id"],
+                    "user_id": task["user_id"],
+                    "title": task["title"],
+                    "description": task["description"],
+                    "date_created": task["date_created"],
+                    "due_date": format_existing_due_date(task["due_date"]),
+                    "priority": task["priority"],
+                    "completed": task["completed"]
+                }
+            )
+
+        connection.execute(text("DROP TABLE task_old"))
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+
+
+def migrate_postgres_due_date_column():
+    with db.engine.begin() as connection:
+        column_type = connection.execute(
+            text("""
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE table_name = 'task'
+                AND column_name = 'due_date'
+            """)
+        ).scalar()
+
+        if column_type and column_type != "date":
+            connection.execute(text("""
+                ALTER TABLE task
+                ALTER COLUMN due_date TYPE DATE
+                USING NULLIF(due_date, '')::date
+            """))
+
+
+def initialize_database():
+    db.create_all()
+    migrate_due_date_column()
 
 
 # -------------------------
@@ -163,7 +295,7 @@ def get_tasks():
         query = query.filter_by(completed=False)
 
     if sort == "due_date":
-        query = query.order_by(Task.due_date.asc())
+        query = query.order_by(Task.due_date.is_(None), Task.due_date.asc())
 
     elif sort == "priority":
         priority_order = case(
@@ -182,7 +314,7 @@ def get_tasks():
             "title": task.title,
             "description": task.description,
             "date_created": task.date_created.isoformat() if task.date_created else None,
-            "due_date": task.due_date,
+            "due_date": format_due_date(task.due_date),
             "priority": task.priority,
             "completed": task.completed
         }
@@ -204,11 +336,16 @@ def create_task():
     if not title:
         return jsonify({"error": "Task title is required"}), 400
 
+    try:
+        due_date = parse_due_date(data.get("due_date"))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
     task = Task(
         user_id=current_user_id(),
         title=title,
         description=data.get("description", ""),
-        due_date=data.get("due_date", ""),
+        due_date=due_date,
         priority=data.get("priority", "low")
     )
 
@@ -233,7 +370,13 @@ def update_task(task_id):
 
     task.title = data.get("title", task.title)
     task.description = data.get("description", task.description)
-    task.due_date = data.get("due_date", task.due_date)
+
+    if "due_date" in data:
+        try:
+            task.due_date = parse_due_date(data["due_date"])
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
     task.priority = data.get("priority", task.priority)
 
     db.session.commit()
@@ -283,6 +426,6 @@ def incomplete_task(task_id):
 
 if __name__ == "__main__":
     with app.app_context():
-        db.create_all()
+        initialize_database()
 
     app.run(debug=True)

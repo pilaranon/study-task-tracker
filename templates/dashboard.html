@@ -31,6 +31,8 @@
             </div>
         </header>
 
+        <div id="messageArea" class="message-area hidden" role="alert" aria-live="polite"></div>
+
         <section class="card">
             <h2>Add New Task</h2>
 
@@ -100,6 +102,16 @@
     </div>
 
     <div id="taskTooltip" class="task-tooltip hidden"></div>
+
+    <div id="confirmPopup" class="confirm-popup hidden" role="dialog" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+        <p id="confirmTitle" class="confirm-title">Delete task?</p>
+        <p id="confirmMessage" class="confirm-message"></p>
+
+        <div class="confirm-actions">
+            <button type="button" id="confirmCancelBtn" class="confirm-cancel-btn">Cancel</button>
+            <button type="button" id="confirmDeleteBtn" class="confirm-delete-btn">Delete</button>
+        </div>
+    </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>

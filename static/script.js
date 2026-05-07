@@ -10,6 +10,11 @@ const taskView = document.getElementById("taskView");
 const calendarView = document.getElementById("calendarView");
 const calendarContainer = document.getElementById("calendarContainer");
 const taskTooltip = document.getElementById("taskTooltip");
+const messageArea = document.getElementById("messageArea");
+const confirmPopup = document.getElementById("confirmPopup");
+const confirmMessage = document.getElementById("confirmMessage");
+const confirmCancelBtn = document.getElementById("confirmCancelBtn");
+const confirmDeleteBtn = document.getElementById("confirmDeleteBtn");
 
 const userIconBtn = document.getElementById("userIconBtn");
 const userDropdown = document.getElementById("userDropdown");
@@ -17,6 +22,91 @@ const userDropdown = document.getElementById("userDropdown");
 let currentStatusFilter = "active";
 let editingTaskId = null;
 let allTasks = [];
+let messageTimeoutId = null;
+let confirmResolver = null;
+
+function showMessage(message, type = "error") {
+    if (!messageArea) {
+        return;
+    }
+
+    window.clearTimeout(messageTimeoutId);
+    messageArea.textContent = message;
+    messageArea.className = `message-area ${type}`;
+
+    messageTimeoutId = window.setTimeout(function () {
+        messageArea.classList.add("hidden");
+    }, 6000);
+}
+
+function clearMessage() {
+    if (!messageArea) {
+        return;
+    }
+
+    window.clearTimeout(messageTimeoutId);
+    messageArea.textContent = "";
+    messageArea.className = "message-area hidden";
+}
+
+async function requestJson(url, options = {}, fallbackMessage = "Something went wrong.") {
+    let response;
+
+    try {
+        response = await fetch(url, options);
+    } catch (error) {
+        throw new Error("Network error. Please check your connection and try again.");
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    let data = null;
+
+    if (contentType.includes("application/json")) {
+        try {
+            data = await response.json();
+        } catch (error) {
+            data = null;
+        }
+    }
+
+    if (!response.ok) {
+        throw new Error(data?.error || fallbackMessage);
+    }
+
+    return data;
+}
+
+function closeDeleteConfirmation(confirmed) {
+    if (!confirmPopup) {
+        return;
+    }
+
+    confirmPopup.classList.add("hidden");
+
+    if (confirmResolver) {
+        const resolve = confirmResolver;
+        confirmResolver = null;
+        resolve(confirmed);
+    }
+}
+
+function showDeleteConfirmation(message) {
+    if (!confirmPopup || !confirmMessage || !confirmCancelBtn) {
+        return Promise.resolve(false);
+    }
+
+    if (confirmResolver) {
+        closeDeleteConfirmation(false);
+    }
+
+    confirmMessage.textContent = message;
+    confirmPopup.classList.remove("hidden");
+    confirmCancelBtn.focus();
+
+    return new Promise(function (resolve) {
+        confirmResolver = resolve;
+    });
+}
 
 async function loadTasks() {
     let url = "/tasks";
@@ -34,19 +124,18 @@ async function loadTasks() {
         url += `?${params.toString()}`;
     }
 
-    const response = await fetch(url);
+    try {
+        const tasks = await requestJson(url, {}, "Failed to load tasks.");
 
-    if (!response.ok) {
-        console.error("Failed to load tasks.");
+        allTasks = tasks;
+
+        renderTaskTable(tasks);
+        renderCalendarView(tasks);
+        clearMessage();
+    } catch (error) {
+        showMessage(error.message || "Failed to load tasks.");
         return;
     }
-
-    const tasks = await response.json();
-
-    allTasks = tasks;
-
-    renderTaskTable(tasks);
-    renderCalendarView(tasks);
 }
 
 function renderTaskTable(tasks) {
@@ -192,35 +281,48 @@ taskForm.addEventListener("submit", async function (event) {
         priority: document.getElementById("priority").value
     };
 
-    if (editingTaskId) {
-        await fetch(`/tasks/${editingTaskId}`, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(taskData)
-        });
+    try {
+        if (editingTaskId) {
+            await requestJson(
+                `/tasks/${editingTaskId}`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(taskData)
+                },
+                "Failed to update task."
+            );
 
-        editingTaskId = null;
-        taskForm.querySelector("button").textContent = "Add Task";
-    } else {
-        await fetch("/tasks", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(taskData)
-        });
+            editingTaskId = null;
+            taskForm.querySelector("button").textContent = "Add Task";
+        } else {
+            await requestJson(
+                "/tasks",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(taskData)
+                },
+                "Failed to create task."
+            );
+        }
+
+        taskForm.reset();
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to save task.");
     }
-
-    taskForm.reset();
-    loadTasks();
 });
 
 function editTask(id) {
     const task = allTasks.find(t => t.id === id);
 
     if (!task) {
+        showMessage("Could not find that task. Refresh the page and try again.");
         return;
     }
 
@@ -240,27 +342,60 @@ function editTask(id) {
 }
 
 async function deleteTask(id) {
-    await fetch(`/tasks/${id}`, {
-        method: "DELETE"
-    });
+    const task = allTasks.find(t => t.id === id);
+    const taskName = task ? `"${task.title}"` : "this task";
 
-    loadTasks();
+    const confirmed = await showDeleteConfirmation(`Delete ${taskName}? This cannot be undone.`);
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        await requestJson(
+            `/tasks/${id}`,
+            {
+                method: "DELETE"
+            },
+            "Failed to delete task."
+        );
+
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to delete task.");
+    }
 }
 
 async function completeTask(id) {
-    await fetch(`/tasks/${id}/complete`, {
-        method: "PATCH"
-    });
+    try {
+        await requestJson(
+            `/tasks/${id}/complete`,
+            {
+                method: "PATCH"
+            },
+            "Failed to mark task complete."
+        );
 
-    loadTasks();
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to mark task complete.");
+    }
 }
 
 async function incompleteTask(id) {
-    await fetch(`/tasks/${id}/incomplete`, {
-        method: "PATCH"
-    });
+    try {
+        await requestJson(
+            `/tasks/${id}/incomplete`,
+            {
+                method: "PATCH"
+            },
+            "Failed to mark task incomplete."
+        );
 
-    loadTasks();
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to mark task incomplete.");
+    }
 }
 
 sortSelect.addEventListener("change", loadTasks);
@@ -308,9 +443,23 @@ userIconBtn.addEventListener("click", function () {
     userDropdown.classList.toggle("hidden");
 });
 
+confirmCancelBtn.addEventListener("click", function () {
+    closeDeleteConfirmation(false);
+});
+
+confirmDeleteBtn.addEventListener("click", function () {
+    closeDeleteConfirmation(true);
+});
+
 document.addEventListener("click", function (event) {
     if (!userIconBtn.contains(event.target) && !userDropdown.contains(event.target)) {
         userDropdown.classList.add("hidden");
+    }
+});
+
+document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && confirmPopup && !confirmPopup.classList.contains("hidden")) {
+        closeDeleteConfirmation(false);
     }
 });
 

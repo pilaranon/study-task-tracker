@@ -139,14 +139,18 @@ async function loadTasks() {
 }
 
 function renderTaskTable(tasks) {
-    taskTableBody.innerHTML = "";
+    taskTableBody.replaceChildren();
 
     if (tasks.length === 0) {
-        taskTableBody.innerHTML = `
-            <tr>
-                <td colspan="7" class="empty-message">No tasks found.</td>
-            </tr>
-        `;
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 7;
+        cell.className = "empty-message";
+        cell.textContent = "No tasks found.";
+
+        row.appendChild(cell);
+        taskTableBody.appendChild(row);
         return;
     }
 
@@ -157,26 +161,52 @@ function renderTaskTable(tasks) {
             row.classList.add("completed");
         }
 
-        row.innerHTML = `
-            <td>${task.title}</td>
-            <td>${task.description || ""}</td>
-            <td>${formatDate(task.date_created)}</td>
-            <td>${task.due_date || ""}</td>
-            <td>${capitalize(task.priority)}</td>
-            <td>${task.completed ? "Complete" : "Incomplete"}</td>
-            <td>
-                <button class="action-btn edit-btn" onclick="editTask(${task.id})">Edit</button>
-                ${
-                    task.completed
-                        ? `<button class="action-btn complete-btn" onclick="incompleteTask(${task.id})">Undo</button>`
-                        : `<button class="action-btn complete-btn" onclick="completeTask(${task.id})">Complete</button>`
+        row.appendChild(createTextCell(task.title));
+        row.appendChild(createTextCell(task.description || ""));
+        row.appendChild(createTextCell(formatDate(task.date_created)));
+        row.appendChild(createTextCell(task.due_date || ""));
+        row.appendChild(createTextCell(capitalize(task.priority)));
+        row.appendChild(createTextCell(task.completed ? "Complete" : "Incomplete"));
+
+        const actionsCell = document.createElement("td");
+        const editButton = createActionButton("Edit", "edit-btn", function () {
+            editTask(task.id);
+        });
+        const completeButton = createActionButton(
+            task.completed ? "Undo" : "Complete",
+            "complete-btn",
+            function () {
+                if (task.completed) {
+                    incompleteTask(task.id);
+                } else {
+                    completeTask(task.id);
                 }
-                <button class="action-btn delete-btn" onclick="deleteTask(${task.id})">Delete</button>
-            </td>
-        `;
+            }
+        );
+        const deleteButton = createActionButton("Delete", "delete-btn", function () {
+            deleteTask(task.id);
+        });
+
+        actionsCell.append(editButton, completeButton, deleteButton);
+        row.appendChild(actionsCell);
 
         taskTableBody.appendChild(row);
     });
+}
+
+function createTextCell(text) {
+    const cell = document.createElement("td");
+    cell.textContent = text;
+    return cell;
+}
+
+function createActionButton(label, className, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `action-btn ${className}`;
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
 }
 
 function renderCalendarView(tasks) {
@@ -241,13 +271,7 @@ function renderCalendarView(tasks) {
             taskItem.textContent = task.title;
 
             taskItem.addEventListener("mouseenter", function () {
-                taskTooltip.innerHTML = `
-                    <strong>${task.title}</strong><br>
-                    <span>${task.description || "No description"}</span><br><br>
-                    <strong>Due:</strong> ${task.due_date || "No due date"}<br>
-                    <strong>Priority:</strong> ${capitalize(task.priority)}<br>
-                    <strong>Status:</strong> ${task.completed ? "Complete" : "Incomplete"}
-                `;
+                renderTaskTooltip(task);
 
                 taskTooltip.classList.remove("hidden");
             });
@@ -269,6 +293,35 @@ function renderCalendarView(tasks) {
 
     calendarContainer.appendChild(monthTitle);
     calendarContainer.appendChild(calendarGrid);
+}
+
+function renderTaskTooltip(task) {
+    taskTooltip.replaceChildren();
+
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+
+    const description = document.createElement("span");
+    description.textContent = task.description || "No description";
+
+    taskTooltip.append(
+        title,
+        document.createElement("br"),
+        description,
+        document.createElement("br"),
+        document.createElement("br")
+    );
+
+    appendTooltipLine("Due:", task.due_date || "No due date");
+    appendTooltipLine("Priority:", capitalize(task.priority));
+    appendTooltipLine("Status:", task.completed ? "Complete" : "Incomplete");
+}
+
+function appendTooltipLine(label, value) {
+    const labelElement = document.createElement("strong");
+    labelElement.textContent = label;
+
+    taskTooltip.append(labelElement, ` ${value}`, document.createElement("br"));
 }
 
 taskForm.addEventListener("submit", async function (event) {

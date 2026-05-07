@@ -22,6 +22,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
+ALLOWED_PRIORITIES = {"low", "medium", "high"}
 
 limiter = Limiter(
     get_remote_address,
@@ -90,6 +91,16 @@ def parse_due_date(value):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError as error:
         raise ValueError("Due date must use YYYY-MM-DD format.") from error
+
+
+def validate_priority(value):
+    priority = value or "low"
+
+    if priority not in ALLOWED_PRIORITIES:
+        allowed_values = ", ".join(sorted(ALLOWED_PRIORITIES))
+        raise ValueError(f"Priority must be one of: {allowed_values}.")
+
+    return priority
 
 
 def format_due_date(value):
@@ -338,6 +349,7 @@ def create_task():
 
     try:
         due_date = parse_due_date(data.get("due_date"))
+        priority = validate_priority(data.get("priority"))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
@@ -346,7 +358,7 @@ def create_task():
         title=title,
         description=data.get("description", ""),
         due_date=due_date,
-        priority=data.get("priority", "low")
+        priority=priority
     )
 
     db.session.add(task)
@@ -377,7 +389,11 @@ def update_task(task_id):
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
 
-    task.priority = data.get("priority", task.priority)
+    if "priority" in data:
+        try:
+            task.priority = validate_priority(data["priority"])
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
     db.session.commit()
 

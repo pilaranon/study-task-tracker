@@ -2,33 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Study Planner</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body class="auth-page">
 
-    <div class="auth-container">
-        <div class="auth-card">
-            <h1>Login</h1>
-            <p>Log in to view your tasks.</p>
+    <main class="auth-container login-container" aria-labelledby="loginTitle">
+        <div class="auth-card login-card">
+            <p class="auth-brand">Study Planner</p>
+            <h1 id="loginTitle">Welcome back</h1>
+            <p class="auth-intro">Log in to manage your tasks, due dates, and priorities.</p>
 
             {% if error %}
-                <p class="error-message">{{ error }}</p>
+                <p class="error-message" role="alert">{{ error }}</p>
             {% endif %}
 
             <form method="POST" action="/login">
-                <input type="text" name="username" placeholder="Username" required>
-                <input type="password" name="password" placeholder="Password" required>
+                <div class="form-field">
+                    <label for="username">Username</label>
+                    <input id="username" type="text" name="username" placeholder="Enter your username" autocomplete="username" required>
+                </div>
 
-                <button type="submit">Login</button>
+                <div class="form-field">
+                    <label for="password">Password</label>
+                    <input id="password" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
+                </div>
+
+                <button class="auth-submit" type="submit">Log in</button>
             </form>
 
-            <p>
+            <p class="auth-switch">
                 Don't have an account?
                 <a href="/register">Create one</a>
             </p>
         </div>
-    </div>
+    </main>
 
 </body>
 </html>

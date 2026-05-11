@@ -2,22 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Study Planner / Task Tracker</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body class="dashboard-page">
 
-    <div class="container">
+    <main class="dashboard-shell">
 
-        <header class="main-header">
-            <div>
-                <h1>Study Planner / Task Tracker</h1>
-                <p>Organize tasks by due date, priority, and completion status.</p>
+        <header class="main-header dashboard-hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Study Planner</p>
+                <h1>Dashboard</h1>
+                <p>Welcome back, {{ username }}.</p>
             </div>
 
             <div class="user-menu">
-                <button id="userIconBtn" class="user-icon-btn">
-                    <span>👤</span>
+                <button id="userIconBtn" class="user-icon-btn" type="button" aria-label="Open user menu" aria-expanded="false">
+                    <span>{{ username[:1]|upper if username else "U" }}</span>
                 </button>
 
                 <div id="userDropdown" class="user-dropdown hidden">
@@ -33,73 +35,126 @@
 
         <div id="messageArea" class="message-area hidden" role="alert" aria-live="polite"></div>
 
-        <section class="card">
-            <h2>Add New Task</h2>
+        <section class="summary-grid" aria-label="Task summary">
+            <article class="summary-card">
+                <span class="summary-label">Active</span>
+                <strong id="activeCount">0</strong>
+                <span class="summary-meta">in focus</span>
+            </article>
 
-            <form id="taskForm">
-                <input type="text" id="title" placeholder="Task title" required>
+            <article class="summary-card">
+                <span class="summary-label">Due Today</span>
+                <strong id="dueTodayCount">0</strong>
+                <span class="summary-meta">needs attention</span>
+            </article>
 
-                <textarea id="description" placeholder="Task description"></textarea>
+            <article class="summary-card">
+                <span class="summary-label">High Priority</span>
+                <strong id="highPriorityCount">0</strong>
+                <span class="summary-meta">active tasks</span>
+            </article>
 
-                <label for="dueDate">Due Date</label>
-                <input type="date" id="dueDate">
-
-                <label for="priority">Priority</label>
-                <select id="priority">
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                </select>
-
-                <button type="submit">Add Task</button>
-            </form>
+            <article class="summary-card">
+                <span class="summary-label">Completed</span>
+                <strong id="completedCount">0</strong>
+                <span class="summary-meta">finished</span>
+            </article>
         </section>
 
-        <section class="card">
-            <div class="task-header">
-                <h2>Task List</h2>
+        <div class="dashboard-grid">
+            <section class="panel task-composer" aria-labelledby="addTaskTitle">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Create</p>
+                        <h2 id="addTaskTitle">New task</h2>
+                    </div>
 
-                <div class="controls">
-                    <button id="taskViewBtn" class="view-btn active-view">Task View</button>
-                    <button id="completedViewBtn" class="view-btn">Completed Tasks</button>
-                    <button id="calendarViewBtn" class="view-btn">Calendar View</button>
-
-                    <select id="sortSelect">
-                        <option value="">Sort By</option>
-                        <option value="due_date">Due Date</option>
-                        <option value="priority">Priority</option>
-                    </select>
+                    <button type="button" id="cancelEditBtn" class="ghost-btn hidden">Cancel edit</button>
                 </div>
-            </div>
 
-            <div id="taskView">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Task</th>
-                            <th>Description</th>
-                            <th>Date Made</th>
-                            <th>Due Date</th>
-                            <th>Priority</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
+                <form id="taskForm">
+                    <div class="form-field">
+                        <label for="title">Task title</label>
+                        <input type="text" id="title" placeholder="Review calculus notes" required>
+                    </div>
 
-                    <tbody id="taskTableBody">
-                        <!-- Tasks load here -->
-                    </tbody>
-                </table>
-            </div>
+                    <div class="form-field">
+                        <label for="description">Description</label>
+                        <textarea id="description" placeholder="Add details, chapters, links, or reminders"></textarea>
+                    </div>
 
-            <div id="calendarView" class="hidden">
-                <h3>Calendar View</h3>
-                <div id="calendarContainer" class="calendar-container">
-                    <!-- Calendar tasks load here -->
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label for="dueDate">Due date</label>
+                            <input type="date" id="dueDate">
+                        </div>
+
+                        <div class="form-field">
+                            <label for="priority">Priority</label>
+                            <select id="priority">
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="taskSubmitBtn" class="primary-action">Add task</button>
+                </form>
+            </section>
+
+            <section class="panel task-panel" aria-labelledby="taskListTitle">
+                <div class="task-header">
+                    <div>
+                        <p class="section-kicker">Tasks</p>
+                        <h2 id="taskListTitle">Today's work</h2>
+                    </div>
+
+                    <div class="controls">
+                        <div class="view-toggle" role="group" aria-label="Task view">
+                            <button id="taskViewBtn" class="view-btn active-view" type="button">Active</button>
+                            <button id="completedViewBtn" class="view-btn" type="button">Completed</button>
+                            <button id="calendarViewBtn" class="view-btn" type="button">Calendar</button>
+                        </div>
+
+                        <label class="sort-control" for="sortSelect">
+                            <span>Sort</span>
+                            <select id="sortSelect">
+                                <option value="">Default</option>
+                                <option value="due_date">Due date</option>
+                                <option value="priority">Priority</option>
+                            </select>
+                        </label>
+                    </div>
                 </div>
-            </div>
-        </section>
-    </div>
+
+                <div id="taskView" class="table-wrap">
+                    <table class="task-table">
+                        <thead>
+                            <tr>
+                                <th>Task</th>
+                                <th>Created</th>
+                                <th>Due</th>
+                                <th>Priority</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="taskTableBody">
+                            <!-- Tasks load here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="calendarView" class="calendar-view hidden">
+                    <div id="calendarContainer" class="calendar-container">
+                        <!-- Calendar tasks load here -->
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
 
     <div id="taskTooltip" class="task-tooltip hidden"></div>
 

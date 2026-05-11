@@ -1,6 +1,8 @@
 const taskForm = document.getElementById("taskForm");
 const taskTableBody = document.getElementById("taskTableBody");
 const sortSelect = document.getElementById("sortSelect");
+const taskSubmitBtn = document.getElementById("taskSubmitBtn");
+const cancelEditBtn = document.getElementById("cancelEditBtn");
 
 const taskViewBtn = document.getElementById("taskViewBtn");
 const completedViewBtn = document.getElementById("completedViewBtn");
@@ -15,6 +17,10 @@ const confirmPopup = document.getElementById("confirmPopup");
 const confirmMessage = document.getElementById("confirmMessage");
 const confirmCancelBtn = document.getElementById("confirmCancelBtn");
 const confirmDeleteBtn = document.getElementById("confirmDeleteBtn");
+const activeCount = document.getElementById("activeCount");
+const dueTodayCount = document.getElementById("dueTodayCount");
+const highPriorityCount = document.getElementById("highPriorityCount");
+const completedCount = document.getElementById("completedCount");
 
 const userIconBtn = document.getElementById("userIconBtn");
 const userDropdown = document.getElementById("userDropdown");
@@ -125,10 +131,14 @@ async function loadTasks() {
     }
 
     try {
-        const tasks = await requestJson(url, {}, "Failed to load tasks.");
+        const [tasks, summaryTasks] = await Promise.all([
+            requestJson(url, {}, "Failed to load tasks."),
+            requestJson("/tasks", {}, "Failed to load summary.")
+        ]);
 
         allTasks = tasks;
 
+        updateSummary(summaryTasks);
         renderTaskTable(tasks);
         renderCalendarView(tasks);
         clearMessage();
@@ -138,6 +148,27 @@ async function loadTasks() {
     }
 }
 
+function updateSummary(tasks) {
+    const today = formatDateForInput(new Date());
+    const activeTasks = tasks.filter(task => !task.completed);
+    const completedTasks = tasks.filter(task => task.completed);
+    const dueTodayTasks = activeTasks.filter(task => task.due_date === today);
+    const highPriorityTasks = activeTasks.filter(task => task.priority === "high");
+
+    setCounter(activeCount, activeTasks.length);
+    setCounter(dueTodayCount, dueTodayTasks.length);
+    setCounter(highPriorityCount, highPriorityTasks.length);
+    setCounter(completedCount, completedTasks.length);
+}
+
+function setCounter(element, value) {
+    if (!element) {
+        return;
+    }
+
+    element.textContent = value;
+}
+
 function renderTaskTable(tasks) {
     taskTableBody.replaceChildren();
 
@@ -145,9 +176,9 @@ function renderTaskTable(tasks) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
 
-        cell.colSpan = 7;
+        cell.colSpan = 6;
         cell.className = "empty-message";
-        cell.textContent = "No tasks found.";
+        cell.textContent = getEmptyMessage();
 
         row.appendChild(cell);
         taskTableBody.appendChild(row);
@@ -161,14 +192,16 @@ function renderTaskTable(tasks) {
             row.classList.add("completed");
         }
 
-        row.appendChild(createTextCell(task.title));
-        row.appendChild(createTextCell(task.description || ""));
-        row.appendChild(createTextCell(formatDate(task.date_created)));
-        row.appendChild(createTextCell(task.due_date || ""));
-        row.appendChild(createTextCell(capitalize(task.priority)));
-        row.appendChild(createTextCell(task.completed ? "Complete" : "Incomplete"));
+        row.appendChild(createTaskCell(task));
+        row.appendChild(createTextCell(formatDate(task.date_created), "Created", "muted-cell"));
+        row.appendChild(createDueDateCell(task.due_date));
+        row.appendChild(createPriorityCell(task.priority));
+        row.appendChild(createStatusCell(task.completed));
 
         const actionsCell = document.createElement("td");
+        actionsCell.dataset.label = "Actions";
+        actionsCell.className = "action-cell";
+
         const editButton = createActionButton("Edit", "edit-btn", function () {
             editTask(task.id);
         });
@@ -194,9 +227,78 @@ function renderTaskTable(tasks) {
     });
 }
 
-function createTextCell(text) {
+function getEmptyMessage() {
+    if (currentStatusFilter === "completed") {
+        return "No completed tasks yet.";
+    }
+
+    return "No active tasks yet.";
+}
+
+function createTaskCell(task) {
     const cell = document.createElement("td");
+    cell.dataset.label = "Task";
+    cell.className = "task-title-cell";
+
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+
+    cell.appendChild(title);
+
+    if (task.description) {
+        const description = document.createElement("span");
+        description.textContent = task.description;
+        cell.appendChild(description);
+    }
+
+    return cell;
+}
+
+function createTextCell(text, label, className = "") {
+    const cell = document.createElement("td");
+    cell.dataset.label = label;
+
+    if (className) {
+        cell.className = className;
+    }
+
     cell.textContent = text;
+    return cell;
+}
+
+function createDueDateCell(dueDate) {
+    const cell = document.createElement("td");
+    cell.dataset.label = "Due";
+
+    const badge = document.createElement("span");
+    badge.className = `date-pill ${getDueDateClass(dueDate)}`;
+    badge.textContent = dueDate ? formatDisplayDate(dueDate) : "No date";
+
+    cell.appendChild(badge);
+    return cell;
+}
+
+function createPriorityCell(priority) {
+    const cell = document.createElement("td");
+    cell.dataset.label = "Priority";
+
+    const pill = document.createElement("span");
+    pill.className = `priority-pill priority-${priority}`;
+    pill.textContent = capitalize(priority);
+
+    cell.appendChild(pill);
+    return cell;
+}
+
+function createStatusCell(completed) {
+    const cell = document.createElement("td");
+    cell.dataset.label = "Status";
+
+    const pill = document.createElement("span");
+    pill.className = completed ? "status-pill status-complete" : "status-pill status-active";
+    pill.textContent = completed ? "Complete" : "Active";
+
+    cell.appendChild(pill);
     return cell;
 }
 
@@ -205,6 +307,7 @@ function createActionButton(label, className, onClick) {
     button.type = "button";
     button.className = `action-btn ${className}`;
     button.textContent = label;
+    button.title = label;
     button.addEventListener("click", onClick);
     return button;
 }
@@ -218,6 +321,8 @@ function renderCalendarView(tasks) {
 
     const firstDayOfMonth = new Date(year, month, 1);
     const startDay = firstDayOfMonth.getDay();
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+    const totalCalendarCells = Math.ceil((startDay + lastDayOfMonth.getDate()) / 7) * 7;
 
     const calendarStartDate = new Date(year, month, 1 - startDay);
 
@@ -239,7 +344,7 @@ function renderCalendarView(tasks) {
         calendarGrid.appendChild(dayHeader);
     });
 
-    for (let i = 0; i < 35; i++) {
+    for (let i = 0; i < totalCalendarCells; i++) {
         const currentDate = new Date(calendarStartDate);
         currentDate.setDate(calendarStartDate.getDate() + i);
 
@@ -250,6 +355,10 @@ function renderCalendarView(tasks) {
 
         if (currentDate.getMonth() !== month) {
             dayCell.classList.add("outside-month");
+        }
+
+        if (dateString === formatDateForInput(today)) {
+            dayCell.classList.add("today");
         }
 
         const dayNumber = document.createElement("div");
@@ -349,7 +458,7 @@ taskForm.addEventListener("submit", async function (event) {
             );
 
             editingTaskId = null;
-            taskForm.querySelector("button").textContent = "Add Task";
+            setEditingState(false);
         } else {
             await requestJson(
                 "/tasks",
@@ -365,6 +474,7 @@ taskForm.addEventListener("submit", async function (event) {
         }
 
         taskForm.reset();
+        setEditingState(false);
         loadTasks();
     } catch (error) {
         showMessage(error.message || "Failed to save task.");
@@ -386,12 +496,28 @@ function editTask(id) {
     document.getElementById("dueDate").value = task.due_date || "";
     document.getElementById("priority").value = task.priority;
 
-    taskForm.querySelector("button").textContent = "Update Task";
+    setEditingState(true);
 
     window.scrollTo({
         top: 0,
         behavior: "smooth"
     });
+}
+
+function setEditingState(isEditing) {
+    if (taskSubmitBtn) {
+        taskSubmitBtn.textContent = isEditing ? "Update task" : "Add task";
+    }
+
+    if (cancelEditBtn) {
+        cancelEditBtn.classList.toggle("hidden", !isEditing);
+    }
+}
+
+function resetTaskForm() {
+    editingTaskId = null;
+    taskForm.reset();
+    setEditingState(false);
 }
 
 async function deleteTask(id) {
@@ -453,6 +579,8 @@ async function incompleteTask(id) {
 
 sortSelect.addEventListener("change", loadTasks);
 
+cancelEditBtn.addEventListener("click", resetTaskForm);
+
 taskViewBtn.addEventListener("click", function () {
     currentStatusFilter = "active";
 
@@ -493,7 +621,8 @@ calendarViewBtn.addEventListener("click", function () {
 });
 
 userIconBtn.addEventListener("click", function () {
-    userDropdown.classList.toggle("hidden");
+    const isOpen = userDropdown.classList.toggle("hidden") === false;
+    userIconBtn.setAttribute("aria-expanded", String(isOpen));
 });
 
 confirmCancelBtn.addEventListener("click", function () {
@@ -507,6 +636,7 @@ confirmDeleteBtn.addEventListener("click", function () {
 document.addEventListener("click", function (event) {
     if (!userIconBtn.contains(event.target) && !userDropdown.contains(event.target)) {
         userDropdown.classList.add("hidden");
+        userIconBtn.setAttribute("aria-expanded", "false");
     }
 });
 
@@ -525,7 +655,64 @@ function formatDate(dateString) {
     if (!dateString) return "";
 
     const date = new Date(dateString);
-    return date.toLocaleDateString();
+    return date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+    });
+}
+
+function formatDisplayDate(dateString) {
+    const date = parseLocalDate(dateString);
+
+    if (!date) {
+        return "";
+    }
+
+    return date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric"
+    });
+}
+
+function parseLocalDate(dateString) {
+    if (!dateString) {
+        return null;
+    }
+
+    const [year, month, day] = dateString.split("-").map(Number);
+
+    if (!year || !month || !day) {
+        return null;
+    }
+
+    return new Date(year, month - 1, day);
+}
+
+function getDueDateClass(dateString) {
+    if (!dateString) {
+        return "date-none";
+    }
+
+    const dueDate = parseLocalDate(dateString);
+    const today = new Date();
+
+    if (!dueDate) {
+        return "date-none";
+    }
+
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+
+    if (dueDate < today) {
+        return "date-overdue";
+    }
+
+    if (dueDate.getTime() === today.getTime()) {
+        return "date-today";
+    }
+
+    return "date-upcoming";
 }
 
 function formatDateForInput(date) {

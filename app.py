@@ -3,8 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from sqlalchemy import case
-from datetime import datetime
+from sqlalchemy import case, text
+from datetime import date, datetime
 from functools import wraps
 import os
 
@@ -22,6 +22,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
+ALLOWED_PRIORITIES = {"low", "medium", "high"}
 
 limiter = Limiter(
     get_remote_address,
@@ -48,7 +49,7 @@ class Task(db.Model):
     title = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)
     date_created = db.Column(db.DateTime, default=datetime.utcnow)
-    due_date = db.Column(db.String(20))
+    due_date = db.Column(db.Date)
     priority = db.Column(db.String(20), default="low")
     completed = db.Column(db.Boolean, default=False)
 
@@ -154,7 +155,7 @@ def get_tasks():
         query = query.filter_by(completed=False)
 
     if sort == "due_date":
-        query = query.order_by(Task.due_date.asc())
+        query = query.order_by(Task.due_date.is_(None), Task.due_date.asc())
 
     elif sort == "priority":
         priority_order = case(
@@ -173,7 +174,7 @@ def get_tasks():
             "title": task.title,
             "description": task.description,
             "date_created": task.date_created.isoformat() if task.date_created else None,
-            "due_date": task.due_date,
+            "due_date": format_due_date(task.due_date),
             "priority": task.priority,
             "completed": task.completed
         }
@@ -194,12 +195,18 @@ def create_task():
     if not title:
         return jsonify({"error": "Task title is required"}), 400
 
+    try:
+        due_date = parse_due_date(data.get("due_date"))
+        priority = validate_priority(data.get("priority"))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
     task = Task(
         user_id=current_user_id(),
         title=title,
         description=data.get("description", ""),
-        due_date=data.get("due_date", ""),
-        priority=data.get("priority", "low")
+        due_date=due_date,
+        priority=priority
     )
 
     db.session.add(task)
@@ -222,8 +229,18 @@ def update_task(task_id):
 
     task.title = data.get("title", task.title)
     task.description = data.get("description", task.description)
-    task.due_date = data.get("due_date", task.due_date)
-    task.priority = data.get("priority", task.priority)
+
+    if "due_date" in data:
+        try:
+            task.due_date = parse_due_date(data["due_date"])
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
+    if "priority" in data:
+        try:
+            task.priority = validate_priority(data["priority"])
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
     db.session.commit()
 

@@ -1,6 +1,8 @@
 const taskForm = document.getElementById("taskForm");
 const taskTableBody = document.getElementById("taskTableBody");
 const sortSelect = document.getElementById("sortSelect");
+const taskSubmitBtn = document.getElementById("taskSubmitBtn");
+const cancelEditBtn = document.getElementById("cancelEditBtn");
 
 const taskViewBtn = document.getElementById("taskViewBtn");
 const completedViewBtn = document.getElementById("completedViewBtn");
@@ -10,6 +12,15 @@ const taskView = document.getElementById("taskView");
 const calendarView = document.getElementById("calendarView");
 const calendarContainer = document.getElementById("calendarContainer");
 const taskTooltip = document.getElementById("taskTooltip");
+const messageArea = document.getElementById("messageArea");
+const confirmPopup = document.getElementById("confirmPopup");
+const confirmMessage = document.getElementById("confirmMessage");
+const confirmCancelBtn = document.getElementById("confirmCancelBtn");
+const confirmDeleteBtn = document.getElementById("confirmDeleteBtn");
+const activeCount = document.getElementById("activeCount");
+const dueTodayCount = document.getElementById("dueTodayCount");
+const highPriorityCount = document.getElementById("highPriorityCount");
+const completedCount = document.getElementById("completedCount");
 
 const userIconBtn = document.getElementById("userIconBtn");
 const userDropdown = document.getElementById("userDropdown");
@@ -17,6 +28,91 @@ const userDropdown = document.getElementById("userDropdown");
 let currentStatusFilter = "active";
 let editingTaskId = null;
 let allTasks = [];
+let messageTimeoutId = null;
+let confirmResolver = null;
+
+function showMessage(message, type = "error") {
+    if (!messageArea) {
+        return;
+    }
+
+    window.clearTimeout(messageTimeoutId);
+    messageArea.textContent = message;
+    messageArea.className = `message-area ${type}`;
+
+    messageTimeoutId = window.setTimeout(function () {
+        messageArea.classList.add("hidden");
+    }, 6000);
+}
+
+function clearMessage() {
+    if (!messageArea) {
+        return;
+    }
+
+    window.clearTimeout(messageTimeoutId);
+    messageArea.textContent = "";
+    messageArea.className = "message-area hidden";
+}
+
+async function requestJson(url, options = {}, fallbackMessage = "Something went wrong.") {
+    let response;
+
+    try {
+        response = await fetch(url, options);
+    } catch (error) {
+        throw new Error("Network error. Please check your connection and try again.");
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    let data = null;
+
+    if (contentType.includes("application/json")) {
+        try {
+            data = await response.json();
+        } catch (error) {
+            data = null;
+        }
+    }
+
+    if (!response.ok) {
+        throw new Error(data?.error || fallbackMessage);
+    }
+
+    return data;
+}
+
+function closeDeleteConfirmation(confirmed) {
+    if (!confirmPopup) {
+        return;
+    }
+
+    confirmPopup.classList.add("hidden");
+
+    if (confirmResolver) {
+        const resolve = confirmResolver;
+        confirmResolver = null;
+        resolve(confirmed);
+    }
+}
+
+function showDeleteConfirmation(message) {
+    if (!confirmPopup || !confirmMessage || !confirmCancelBtn) {
+        return Promise.resolve(false);
+    }
+
+    if (confirmResolver) {
+        closeDeleteConfirmation(false);
+    }
+
+    confirmMessage.textContent = message;
+    confirmPopup.classList.remove("hidden");
+    confirmCancelBtn.focus();
+
+    return new Promise(function (resolve) {
+        confirmResolver = resolve;
+    });
+}
 
 async function loadTasks() {
     let url = "/tasks";
@@ -34,30 +130,58 @@ async function loadTasks() {
         url += `?${params.toString()}`;
     }
 
-    const response = await fetch(url);
+    try {
+        const [tasks, summaryTasks] = await Promise.all([
+            requestJson(url, {}, "Failed to load tasks."),
+            requestJson("/tasks", {}, "Failed to load summary.")
+        ]);
 
-    if (!response.ok) {
-        console.error("Failed to load tasks.");
+        allTasks = tasks;
+
+        updateSummary(summaryTasks);
+        renderTaskTable(tasks);
+        renderCalendarView(tasks);
+        clearMessage();
+    } catch (error) {
+        showMessage(error.message || "Failed to load tasks.");
+        return;
+    }
+}
+
+function updateSummary(tasks) {
+    const today = formatDateForInput(new Date());
+    const activeTasks = tasks.filter(task => !task.completed);
+    const completedTasks = tasks.filter(task => task.completed);
+    const dueTodayTasks = activeTasks.filter(task => task.due_date === today);
+    const highPriorityTasks = activeTasks.filter(task => task.priority === "high");
+
+    setCounter(activeCount, activeTasks.length);
+    setCounter(dueTodayCount, dueTodayTasks.length);
+    setCounter(highPriorityCount, highPriorityTasks.length);
+    setCounter(completedCount, completedTasks.length);
+}
+
+function setCounter(element, value) {
+    if (!element) {
         return;
     }
 
-    const tasks = await response.json();
-
-    allTasks = tasks;
-
-    renderTaskTable(tasks);
-    renderCalendarView(tasks);
+    element.textContent = value;
 }
 
 function renderTaskTable(tasks) {
-    taskTableBody.innerHTML = "";
+    taskTableBody.replaceChildren();
 
     if (tasks.length === 0) {
-        taskTableBody.innerHTML = `
-            <tr>
-                <td colspan="7" class="empty-message">No tasks found.</td>
-            </tr>
-        `;
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 6;
+        cell.className = "empty-message";
+        cell.textContent = getEmptyMessage();
+
+        row.appendChild(cell);
+        taskTableBody.appendChild(row);
         return;
     }
 
@@ -68,26 +192,124 @@ function renderTaskTable(tasks) {
             row.classList.add("completed");
         }
 
-        row.innerHTML = `
-            <td>${task.title}</td>
-            <td>${task.description || ""}</td>
-            <td>${formatDate(task.date_created)}</td>
-            <td>${task.due_date || ""}</td>
-            <td>${capitalize(task.priority)}</td>
-            <td>${task.completed ? "Complete" : "Incomplete"}</td>
-            <td>
-                <button class="action-btn edit-btn" onclick="editTask(${task.id})">Edit</button>
-                ${
-                    task.completed
-                        ? `<button class="action-btn complete-btn" onclick="incompleteTask(${task.id})">Undo</button>`
-                        : `<button class="action-btn complete-btn" onclick="completeTask(${task.id})">Complete</button>`
+        row.appendChild(createTaskCell(task));
+        row.appendChild(createTextCell(formatDate(task.date_created), "Created", "muted-cell"));
+        row.appendChild(createDueDateCell(task.due_date));
+        row.appendChild(createPriorityCell(task.priority));
+        row.appendChild(createStatusCell(task.completed));
+
+        const actionsCell = document.createElement("td");
+        actionsCell.dataset.label = "Actions";
+        actionsCell.className = "action-cell";
+
+        const editButton = createActionButton("Edit", "edit-btn", function () {
+            editTask(task.id);
+        });
+        const completeButton = createActionButton(
+            task.completed ? "Undo" : "Complete",
+            "complete-btn",
+            function () {
+                if (task.completed) {
+                    incompleteTask(task.id);
+                } else {
+                    completeTask(task.id);
                 }
-                <button class="action-btn delete-btn" onclick="deleteTask(${task.id})">Delete</button>
-            </td>
-        `;
+            }
+        );
+        const deleteButton = createActionButton("Delete", "delete-btn", function () {
+            deleteTask(task.id);
+        });
+
+        actionsCell.append(editButton, completeButton, deleteButton);
+        row.appendChild(actionsCell);
 
         taskTableBody.appendChild(row);
     });
+}
+
+function getEmptyMessage() {
+    if (currentStatusFilter === "completed") {
+        return "No completed tasks yet.";
+    }
+
+    return "No active tasks yet.";
+}
+
+function createTaskCell(task) {
+    const cell = document.createElement("td");
+    cell.dataset.label = "Task";
+    cell.className = "task-title-cell";
+
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+
+    cell.appendChild(title);
+
+    if (task.description) {
+        const description = document.createElement("span");
+        description.textContent = task.description;
+        cell.appendChild(description);
+    }
+
+    return cell;
+}
+
+function createTextCell(text, label, className = "") {
+    const cell = document.createElement("td");
+    cell.dataset.label = label;
+
+    if (className) {
+        cell.className = className;
+    }
+
+    cell.textContent = text;
+    return cell;
+}
+
+function createDueDateCell(dueDate) {
+    const cell = document.createElement("td");
+    cell.dataset.label = "Due";
+
+    const badge = document.createElement("span");
+    badge.className = `date-pill ${getDueDateClass(dueDate)}`;
+    badge.textContent = dueDate ? formatDisplayDate(dueDate) : "No date";
+
+    cell.appendChild(badge);
+    return cell;
+}
+
+function createPriorityCell(priority) {
+    const cell = document.createElement("td");
+    cell.dataset.label = "Priority";
+
+    const pill = document.createElement("span");
+    pill.className = `priority-pill priority-${priority}`;
+    pill.textContent = capitalize(priority);
+
+    cell.appendChild(pill);
+    return cell;
+}
+
+function createStatusCell(completed) {
+    const cell = document.createElement("td");
+    cell.dataset.label = "Status";
+
+    const pill = document.createElement("span");
+    pill.className = completed ? "status-pill status-complete" : "status-pill status-active";
+    pill.textContent = completed ? "Complete" : "Active";
+
+    cell.appendChild(pill);
+    return cell;
+}
+
+function createActionButton(label, className, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `action-btn ${className}`;
+    button.textContent = label;
+    button.title = label;
+    button.addEventListener("click", onClick);
+    return button;
 }
 
 function renderCalendarView(tasks) {
@@ -99,6 +321,8 @@ function renderCalendarView(tasks) {
 
     const firstDayOfMonth = new Date(year, month, 1);
     const startDay = firstDayOfMonth.getDay();
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+    const totalCalendarCells = Math.ceil((startDay + lastDayOfMonth.getDate()) / 7) * 7;
 
     const calendarStartDate = new Date(year, month, 1 - startDay);
 
@@ -120,7 +344,7 @@ function renderCalendarView(tasks) {
         calendarGrid.appendChild(dayHeader);
     });
 
-    for (let i = 0; i < 35; i++) {
+    for (let i = 0; i < totalCalendarCells; i++) {
         const currentDate = new Date(calendarStartDate);
         currentDate.setDate(calendarStartDate.getDate() + i);
 
@@ -131,6 +355,10 @@ function renderCalendarView(tasks) {
 
         if (currentDate.getMonth() !== month) {
             dayCell.classList.add("outside-month");
+        }
+
+        if (dateString === formatDateForInput(today)) {
+            dayCell.classList.add("today");
         }
 
         const dayNumber = document.createElement("div");
@@ -152,13 +380,7 @@ function renderCalendarView(tasks) {
             taskItem.textContent = task.title;
 
             taskItem.addEventListener("mouseenter", function () {
-                taskTooltip.innerHTML = `
-                    <strong>${task.title}</strong><br>
-                    <span>${task.description || "No description"}</span><br><br>
-                    <strong>Due:</strong> ${task.due_date || "No due date"}<br>
-                    <strong>Priority:</strong> ${capitalize(task.priority)}<br>
-                    <strong>Status:</strong> ${task.completed ? "Complete" : "Incomplete"}
-                `;
+                renderTaskTooltip(task);
 
                 taskTooltip.classList.remove("hidden");
             });
@@ -182,6 +404,35 @@ function renderCalendarView(tasks) {
     calendarContainer.appendChild(calendarGrid);
 }
 
+function renderTaskTooltip(task) {
+    taskTooltip.replaceChildren();
+
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+
+    const description = document.createElement("span");
+    description.textContent = task.description || "No description";
+
+    taskTooltip.append(
+        title,
+        document.createElement("br"),
+        description,
+        document.createElement("br"),
+        document.createElement("br")
+    );
+
+    appendTooltipLine("Due:", task.due_date || "No due date");
+    appendTooltipLine("Priority:", capitalize(task.priority));
+    appendTooltipLine("Status:", task.completed ? "Complete" : "Incomplete");
+}
+
+function appendTooltipLine(label, value) {
+    const labelElement = document.createElement("strong");
+    labelElement.textContent = label;
+
+    taskTooltip.append(labelElement, ` ${value}`, document.createElement("br"));
+}
+
 taskForm.addEventListener("submit", async function (event) {
     event.preventDefault();
 
@@ -192,35 +443,49 @@ taskForm.addEventListener("submit", async function (event) {
         priority: document.getElementById("priority").value
     };
 
-    if (editingTaskId) {
-        await fetch(`/tasks/${editingTaskId}`, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(taskData)
-        });
+    try {
+        if (editingTaskId) {
+            await requestJson(
+                `/tasks/${editingTaskId}`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(taskData)
+                },
+                "Failed to update task."
+            );
 
-        editingTaskId = null;
-        taskForm.querySelector("button").textContent = "Add Task";
-    } else {
-        await fetch("/tasks", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(taskData)
-        });
+            editingTaskId = null;
+            setEditingState(false);
+        } else {
+            await requestJson(
+                "/tasks",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(taskData)
+                },
+                "Failed to create task."
+            );
+        }
+
+        taskForm.reset();
+        setEditingState(false);
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to save task.");
     }
-
-    taskForm.reset();
-    loadTasks();
 });
 
 function editTask(id) {
     const task = allTasks.find(t => t.id === id);
 
     if (!task) {
+        showMessage("Could not find that task. Refresh the page and try again.");
         return;
     }
 
@@ -231,7 +496,7 @@ function editTask(id) {
     document.getElementById("dueDate").value = task.due_date || "";
     document.getElementById("priority").value = task.priority;
 
-    taskForm.querySelector("button").textContent = "Update Task";
+    setEditingState(true);
 
     window.scrollTo({
         top: 0,
@@ -239,31 +504,82 @@ function editTask(id) {
     });
 }
 
-async function deleteTask(id) {
-    await fetch(`/tasks/${id}`, {
-        method: "DELETE"
-    });
+function setEditingState(isEditing) {
+    if (taskSubmitBtn) {
+        taskSubmitBtn.textContent = isEditing ? "Update task" : "Add task";
+    }
 
-    loadTasks();
+    if (cancelEditBtn) {
+        cancelEditBtn.classList.toggle("hidden", !isEditing);
+    }
+}
+
+function resetTaskForm() {
+    editingTaskId = null;
+    taskForm.reset();
+    setEditingState(false);
+}
+
+async function deleteTask(id) {
+    const task = allTasks.find(t => t.id === id);
+    const taskName = task ? `"${task.title}"` : "this task";
+
+    const confirmed = await showDeleteConfirmation(`Delete ${taskName}? This cannot be undone.`);
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        await requestJson(
+            `/tasks/${id}`,
+            {
+                method: "DELETE"
+            },
+            "Failed to delete task."
+        );
+
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to delete task.");
+    }
 }
 
 async function completeTask(id) {
-    await fetch(`/tasks/${id}/complete`, {
-        method: "PATCH"
-    });
+    try {
+        await requestJson(
+            `/tasks/${id}/complete`,
+            {
+                method: "PATCH"
+            },
+            "Failed to mark task complete."
+        );
 
-    loadTasks();
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to mark task complete.");
+    }
 }
 
 async function incompleteTask(id) {
-    await fetch(`/tasks/${id}/incomplete`, {
-        method: "PATCH"
-    });
+    try {
+        await requestJson(
+            `/tasks/${id}/incomplete`,
+            {
+                method: "PATCH"
+            },
+            "Failed to mark task incomplete."
+        );
 
-    loadTasks();
+        loadTasks();
+    } catch (error) {
+        showMessage(error.message || "Failed to mark task incomplete.");
+    }
 }
 
 sortSelect.addEventListener("change", loadTasks);
+
+cancelEditBtn.addEventListener("click", resetTaskForm);
 
 taskViewBtn.addEventListener("click", function () {
     currentStatusFilter = "active";
@@ -305,12 +621,28 @@ calendarViewBtn.addEventListener("click", function () {
 });
 
 userIconBtn.addEventListener("click", function () {
-    userDropdown.classList.toggle("hidden");
+    const isOpen = userDropdown.classList.toggle("hidden") === false;
+    userIconBtn.setAttribute("aria-expanded", String(isOpen));
+});
+
+confirmCancelBtn.addEventListener("click", function () {
+    closeDeleteConfirmation(false);
+});
+
+confirmDeleteBtn.addEventListener("click", function () {
+    closeDeleteConfirmation(true);
 });
 
 document.addEventListener("click", function (event) {
     if (!userIconBtn.contains(event.target) && !userDropdown.contains(event.target)) {
         userDropdown.classList.add("hidden");
+        userIconBtn.setAttribute("aria-expanded", "false");
+    }
+});
+
+document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && confirmPopup && !confirmPopup.classList.contains("hidden")) {
+        closeDeleteConfirmation(false);
     }
 });
 
@@ -323,7 +655,64 @@ function formatDate(dateString) {
     if (!dateString) return "";
 
     const date = new Date(dateString);
-    return date.toLocaleDateString();
+    return date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+    });
+}
+
+function formatDisplayDate(dateString) {
+    const date = parseLocalDate(dateString);
+
+    if (!date) {
+        return "";
+    }
+
+    return date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric"
+    });
+}
+
+function parseLocalDate(dateString) {
+    if (!dateString) {
+        return null;
+    }
+
+    const [year, month, day] = dateString.split("-").map(Number);
+
+    if (!year || !month || !day) {
+        return null;
+    }
+
+    return new Date(year, month - 1, day);
+}
+
+function getDueDateClass(dateString) {
+    if (!dateString) {
+        return "date-none";
+    }
+
+    const dueDate = parseLocalDate(dateString);
+    const today = new Date();
+
+    if (!dueDate) {
+        return "date-none";
+    }
+
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+
+    if (dueDate < today) {
+        return "date-overdue";
+    }
+
+    if (dueDate.getTime() === today.getTime()) {
+        return "date-today";
+    }
+
+    return "date-upcoming";
 }
 
 function formatDateForInput(date) {

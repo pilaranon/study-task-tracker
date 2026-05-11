@@ -2,33 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Account - Study Planner</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body class="auth-page">
 
-    <div class="auth-container">
-        <div class="auth-card">
-            <h1>Create Account</h1>
-            <p>Create an account to start tracking your tasks.</p>
+    <main class="auth-container register-container" aria-labelledby="registerTitle">
+        <div class="auth-card register-card">
+            <p class="auth-brand">Study Planner</p>
+            <h1 id="registerTitle">Create account</h1>
+            <p class="auth-intro">Start tracking your tasks, due dates, and priorities in one place.</p>
 
             {% if error %}
-                <p class="error-message">{{ error }}</p>
+                <p class="error-message" role="alert">{{ error }}</p>
             {% endif %}
 
             <form method="POST" action="/register">
-                <input type="text" name="username" placeholder="Username" required>
-                <input type="password" name="password" placeholder="Password" required>
+                <div class="form-field">
+                    <label for="username">Username</label>
+                    <input id="username" type="text" name="username" placeholder="Choose a username" autocomplete="username" required>
+                </div>
 
-                <button type="submit">Create Account</button>
+                <div class="form-field">
+                    <label for="password">Password</label>
+                    <input id="password" type="password" name="password" placeholder="Create a password" autocomplete="new-password" required>
+                </div>
+
+                <button class="auth-submit" type="submit">Create account</button>
             </form>
 
-            <p>
+            <p class="auth-switch">
                 Already have an account?
-                <a href="/login">Login</a>
+                <a href="/login">Log in</a>
             </p>
         </div>
-    </div>
+    </main>
 
 </body>
 </html>

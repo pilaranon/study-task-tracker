@@ -40,7 +40,6 @@ class User(db.Model):
 
     tasks = db.relationship("Task", backref="user", lazy=True)
 
-
 class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
@@ -52,7 +51,6 @@ class Task(db.Model):
     due_date = db.Column(db.String(20))
     priority = db.Column(db.String(20), default="low")
     completed = db.Column(db.Boolean, default=False)
-
 
 # -------------------------
 # Helper Functions
@@ -68,10 +66,8 @@ def login_required(route_function):
         return route_function(*args, **kwargs)
     return wrapper
 
-
 def current_user_id():
     return session.get("user_id")
-
 
 # -------------------------
 # Page Routes
@@ -82,7 +78,6 @@ def home():
     if "user_id" not in session:
         return redirect(url_for("login"))
     return render_template("dashboard.html", username=session.get("username"))
-
 
 @app.route("/register", methods=["GET", "POST"])
 @limiter.limit("10 per minute")
@@ -113,7 +108,6 @@ def register():
 
     return redirect(url_for("login"))
 
-
 @app.route("/login", methods=["GET", "POST"])
 @limiter.limit("10 per minute")
 def login():
@@ -133,12 +127,10 @@ def login():
 
     return redirect(url_for("home"))
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
-
 
 # -------------------------
 # API Routes
@@ -147,7 +139,6 @@ def logout():
 @app.route("/api/status", methods=["GET"])
 def status():
     return jsonify({"message": "Study Planner API is running"})
-
 
 @app.route("/tasks", methods=["GET"])
 @login_required
@@ -189,7 +180,6 @@ def get_tasks():
         for task in tasks
     ])
 
-
 @app.route("/tasks", methods=["POST"])
 @login_required
 @limiter.limit("20 per minute")
@@ -220,7 +210,6 @@ def create_task():
         "task_id": task.id
     }), 201
 
-
 @app.route("/tasks/<int:task_id>", methods=["PUT"])
 @login_required
 @limiter.limit("20 per minute")
@@ -240,7 +229,6 @@ def update_task(task_id):
 
     return jsonify({"message": "Task updated"})
 
-
 @app.route("/tasks/<int:task_id>", methods=["DELETE"])
 @login_required
 @limiter.limit("20 per minute")
@@ -251,7 +239,6 @@ def delete_task(task_id):
     db.session.commit()
 
     return jsonify({"message": "Task deleted"})
-
 
 @app.route("/tasks/<int:task_id>/complete", methods=["PATCH"])
 @login_required
@@ -264,7 +251,6 @@ def complete_task(task_id):
 
     return jsonify({"message": "Task marked complete"})
 
-
 @app.route("/tasks/<int:task_id>/incomplete", methods=["PATCH"])
 @login_required
 @limiter.limit("20 per minute")
@@ -276,13 +262,12 @@ def incomplete_task(task_id):
 
     return jsonify({"message": "Task marked incomplete"})
 
-
 # -------------------------
 # Run App
 # -------------------------
 
-if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
+with app.app_context():
+    db.create_all()
 
+if __name__ == "__main__":
     app.run(debug=True)
